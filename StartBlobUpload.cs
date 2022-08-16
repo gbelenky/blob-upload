@@ -38,14 +38,15 @@ namespace gbelenky.blobupload
         public static string GetFileList([ActivityTrigger] string rootString, ILogger log)
         {           
             DirectoryInfo root = new DirectoryInfo(rootString);
-            WalkDirectoryTree(root, log);
+            List<FileInfo> fullFilesList = new List<FileInfo>();
+            WalkDirectoryTree(root, ref fullFilesList, log);
 
             log.LogInformation($"Saying hello to .");
             return $"Hello!";
         }
 
 
-        static void WalkDirectoryTree(DirectoryInfo root, ILogger log)
+        static void WalkDirectoryTree(DirectoryInfo root, ref List<FileInfo> fullFilesList, ILogger log)
         {
             FileInfo[] files = null;
             DirectoryInfo[] subDirs = null;
@@ -78,7 +79,8 @@ namespace gbelenky.blobupload
                     // want to open, delete or modify the file, then
                     // a try-catch block is required here to handle the case
                     // where the file has been deleted since the call to TraverseTree().
-                    Console.WriteLine(fi.FullName);
+                    log.LogTrace(fi.FullName);
+                    fullFilesList.Add(fi);
                 }
 
                 // Now find all the subdirectories under this directory.
@@ -87,7 +89,7 @@ namespace gbelenky.blobupload
                 foreach (System.IO.DirectoryInfo dirInfo in subDirs)
                 {
                     // Resursive call for each subdirectory.
-                    WalkDirectoryTree(dirInfo, log);
+                    WalkDirectoryTree(dirInfo, ref fullFilesList, log);
                 }
             }
         }
