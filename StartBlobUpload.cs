@@ -9,44 +9,44 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.IO;
 using System;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Blobs.Specialized;
 
 namespace gbelenky.blobupload
 {
     public static class StartBlobUpload
     {
         [FunctionName("StartBlobUpload")]
-        public static async Task<List<string>> RunOrchestrator(
+        public static async Task RunOrchestrator(
             [OrchestrationTrigger] IDurableOrchestrationContext context)
         {
             ArchiveTask archiveTask = context.GetInput<ArchiveTask>();
-            
+            List<string> fullFilesList = await context.CallActivityAsync<List<string>>("GetFileList", archiveTask.PathToArchive);
 
-            var outputs = new List<string>();
-
-            // Replace "hello" with the name of your Durable Activity Function.
-            /*
-            outputs.Add(await context.CallActivityAsync<string>("StartBlobUpload_Hello", "Tokyo"));
-            outputs.Add(await context.CallActivityAsync<string>("StartBlobUpload_Hello", "Seattle"));
-            outputs.Add(await context.CallActivityAsync<string>("StartBlobUpload_Hello", "London"));
-            */
-             outputs.Add(await context.CallActivityAsync<string>("GetFileList", archiveTask.PathToArchive));
-
-            return outputs;
+            var tasks = new Task[fullFilesList.Count];
+            int i = 0;
+            foreach(string fileName in fullFilesList)
+            {
+                tasks[i] = context.CallActivityAsync("CopyFile", fileName);
+                i++;
+            }
+            await Task.WhenAll(tasks);
         }
 
         [FunctionName("GetFileList")]
-        public static string GetFileList([ActivityTrigger] string rootString, ILogger log)
-        {           
+        public static List<string> GetFileList([ActivityTrigger] string rootString, ILogger log)
+        {
             DirectoryInfo root = new DirectoryInfo(rootString);
-            List<FileInfo> fullFilesList = new List<FileInfo>();
+            List<string> fullFilesList = new List<string>();
             WalkDirectoryTree(root, ref fullFilesList, log);
 
-            log.LogInformation($"Saying hello to .");
-            return $"Hello!";
+            log.LogInformation($"File list prepared for {rootString}");
+            return fullFilesList;
         }
 
 
-        static void WalkDirectoryTree(DirectoryInfo root, ref List<FileInfo> fullFilesList, ILogger log)
+        static void WalkDirectoryTree(DirectoryInfo root, ref List<string> fullFilesList, ILogger log)
         {
             FileInfo[] files = null;
             DirectoryInfo[] subDirs = null;
@@ -80,7 +80,7 @@ namespace gbelenky.blobupload
                     // a try-catch block is required here to handle the case
                     // where the file has been deleted since the call to TraverseTree().
                     log.LogTrace(fi.FullName);
-                    fullFilesList.Add(fi);
+                    fullFilesList.Add(fi.FullName);
                 }
 
                 // Now find all the subdirectories under this directory.
@@ -92,6 +92,16 @@ namespace gbelenky.blobupload
                     WalkDirectoryTree(dirInfo, ref fullFilesList, log);
                 }
             }
+        }
+
+
+        [FunctionName("CopyFile")]
+        [StorageAccount("DEST_BLOB_STORAGE")]
+        public static async Task CopyFile([ActivityTrigger] string fileToCopy,
+                [Blob("archfiles")] BlobContainerClient destContainer, ILogger log)
+        {
+            BlobClient blobClient = destContainer.GetBlobClient(fileToCopy);
+            await blobClient.UploadAsync(fileToCopy, true);
         }
 
 
