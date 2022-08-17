@@ -38,7 +38,7 @@ namespace gbelenky.blobupload
             await Task.WhenAll(tasks);
             stopwatch.Stop();
 
-            log.LogInformation($"Copied {i} files in {stopwatch.ElapsedMilliseconds} milliseconds");
+            log.LogInformation($"Copied {i} files in {stopwatch.ElapsedMilliseconds/1000} seconds");
         }
 
         [FunctionName("GetFileList")]
@@ -117,7 +117,7 @@ namespace gbelenky.blobupload
             stopwatch.Stop();
             var properties = await blobClient.GetPropertiesAsync();
 
-            log.LogInformation($"Copied {fileToCopy} of {properties.Value.ContentLength} in {stopwatch.ElapsedMilliseconds} milliseconds");
+            log.LogInformation($"Copied {fileToCopy} of {properties.Value.ContentLength} bytes in {stopwatch.ElapsedMilliseconds/1000} seconds");
         }
 
         [FunctionName("InitBlobUpload")]
