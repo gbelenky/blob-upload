@@ -10,8 +10,9 @@ using System.Text.Json;
 using System.IO;
 using System;
 using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
+using System.Diagnostics;
 using Azure.Storage.Blobs.Specialized;
+
 
 namespace gbelenky.blobupload
 {
@@ -19,19 +20,25 @@ namespace gbelenky.blobupload
     {
         [FunctionName("StartBlobUpload")]
         public static async Task RunOrchestrator(
-            [OrchestrationTrigger] IDurableOrchestrationContext context)
+            [OrchestrationTrigger] IDurableOrchestrationContext context, ILogger log)
         {
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             ArchiveTask archiveTask = context.GetInput<ArchiveTask>();
             List<string> fullFilesList = await context.CallActivityAsync<List<string>>("GetFileList", archiveTask.PathToArchive);
 
+
             var tasks = new Task[fullFilesList.Count];
             int i = 0;
-            foreach(string fileName in fullFilesList)
+            foreach (string fileName in fullFilesList)
             {
                 tasks[i] = context.CallActivityAsync("CopyFile", fileName);
                 i++;
             }
             await Task.WhenAll(tasks);
+            stopwatch.Stop();
+
+            log.LogInformation($"Copied {i} files in {stopwatch.ElapsedMilliseconds} milliseconds");
         }
 
         [FunctionName("GetFileList")]
@@ -101,10 +108,17 @@ namespace gbelenky.blobupload
                 [Blob("archfiles")] BlobContainerClient destContainer, ILogger log)
         {
             BlobClient blobClient = destContainer.GetBlobClient(fileToCopy);
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
             await blobClient.UploadAsync(fileToCopy, true);
+
+            stopwatch.Stop();
+            var properties = await blobClient.GetPropertiesAsync();
+
+            log.LogInformation($"Copied {fileToCopy} of {properties.Value.ContentLength} in {stopwatch.ElapsedMilliseconds} milliseconds");
         }
-
-
 
         [FunctionName("InitBlobUpload")]
         public static async Task<HttpResponseMessage> HttpStart(
