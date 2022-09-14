@@ -4,3 +4,7 @@ Content-Type: application/json
 {
         "PathToArchive": "c:\\labs\\uploadblobs-data"
 }
+
+###
+
+GET http://localhost:7071/api/GetStatus HTTP/1.1

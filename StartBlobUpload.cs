@@ -4,14 +4,16 @@ using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 using System.IO;
 using System;
 using Azure.Storage.Blobs;
 using System.Diagnostics;
 using Azure.Storage.Blobs.Specialized;
+using Newtonsoft.Json;
+using System.Threading;
+using System.Net;
+
 
 
 namespace gbelenky.blobupload
@@ -19,26 +21,36 @@ namespace gbelenky.blobupload
     public static class StartBlobUpload
     {
         [FunctionName("StartBlobUpload")]
-        public static async Task RunOrchestrator(
+        public static async Task<List<CopyFileReturn>> RunOrchestrator(
             [OrchestrationTrigger] IDurableOrchestrationContext context, ILogger log)
         {
-            Stopwatch stopwatch = new Stopwatch();
-            stopwatch.Start();
+            var outputs = new List<CopyFileReturn>();
             ArchiveTask archiveTask = context.GetInput<ArchiveTask>();
             List<string> fullFilesList = await context.CallActivityAsync<List<string>>("GetFileList", archiveTask.PathToArchive);
 
 
-            var tasks = new Task[fullFilesList.Count];
+            var tasks = new Task<CopyFileReturn>[fullFilesList.Count];
             int i = 0;
             foreach (string fileName in fullFilesList)
             {
-                tasks[i] = context.CallActivityAsync("CopyFile", fileName);
+                tasks[i] = context.CallActivityAsync<CopyFileReturn>("CopyFile", fileName);
                 i++;
             }
-            await Task.WhenAll(tasks);
-            stopwatch.Stop();
 
-            log.LogInformation($"Copied {i} files in {stopwatch.ElapsedMilliseconds/1000} seconds");
+            await Task.WhenAll(tasks);
+            
+            long totalBytes = 0;
+            long totalTime = 0;
+
+            foreach (Task<CopyFileReturn> t in tasks)
+            {
+                outputs.Add(t.Result);
+                totalBytes += t.Result.FileSize;
+                totalTime += t.Result.Duration; 
+            }
+            
+            log.LogInformation($"Copied {i} files in {totalTime/1000} seconds. Total size: {totalBytes} bytes");
+            return outputs;
         }
 
         [FunctionName("GetFileList")]
@@ -52,7 +64,7 @@ namespace gbelenky.blobupload
             return fullFilesList;
         }
 
-
+        // from https://docs.microsoft.com/en-us/dotnet/csharp/programming-guide/file-system/how-to-iterate-through-a-directory-tree
         static void WalkDirectoryTree(DirectoryInfo root, ref List<string> fullFilesList, ILogger log)
         {
             FileInfo[] files = null;
@@ -95,7 +107,7 @@ namespace gbelenky.blobupload
 
                 foreach (System.IO.DirectoryInfo dirInfo in subDirs)
                 {
-                    // Resursive call for each subdirectory.
+                    // Recursive call for each subdirectory.
                     WalkDirectoryTree(dirInfo, ref fullFilesList, log);
                 }
             }
@@ -104,20 +116,23 @@ namespace gbelenky.blobupload
 
         [FunctionName("CopyFile")]
         [StorageAccount("DEST_BLOB_STORAGE")]
-        public static async Task CopyFile([ActivityTrigger] string fileToCopy,
+        public static async Task<CopyFileReturn> CopyFile([ActivityTrigger] string fileName,
                 [Blob("archfiles")] BlobContainerClient destContainer, ILogger log)
         {
-            BlobClient blobClient = destContainer.GetBlobClient(fileToCopy);
-
+            BlobClient blobClient = destContainer.GetBlobClient(fileName);
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-
-            await blobClient.UploadAsync(fileToCopy, true);
-
+            log.LogInformation($"copy {fileName}...");
+            await blobClient.UploadAsync(fileName, true);
             stopwatch.Stop();
             var properties = await blobClient.GetPropertiesAsync();
-
-            log.LogInformation($"Copied {fileToCopy} of {properties.Value.ContentLength} bytes in {stopwatch.ElapsedMilliseconds/1000} seconds");
+            string statusMessage = $"copied {fileName} of {properties.Value.ContentLength} bytes in {stopwatch.ElapsedMilliseconds} milliseconds";
+            log.LogInformation(statusMessage);
+            return new CopyFileReturn{
+                FileSize = properties.Value.ContentLength,
+                Duration = stopwatch.ElapsedMilliseconds,
+                LogMessage = statusMessage
+            };
         }
 
         [FunctionName("InitBlobUpload")]
@@ -128,15 +143,36 @@ namespace gbelenky.blobupload
         {
             string archiveTaskJson = await req.Content.ReadAsStringAsync();
 
-            ArchiveTask archiveTask = JsonSerializer.Deserialize<ArchiveTask>(archiveTaskJson);
-
+            ArchiveTask archiveTask = JsonConvert.DeserializeObject<ArchiveTask>(archiveTaskJson);
 
             // Function input comes from the request content.
-            string instanceId = await starter.StartNewAsync("StartBlobUpload", archiveTask);
-
+            var instanceId = await starter.StartNewAsync("StartBlobUpload", archiveTask);
             log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+            DurableOrchestrationStatus status = await starter.GetStatusAsync(instanceId);
+            while (status.RuntimeStatus == OrchestrationRuntimeStatus.Completed)
+            {
+                await Task.Delay(200);
+                status = await starter.GetStatusAsync(instanceId);
+            }
+            return starter.CreateCheckStatusResponse(req, status.Output.ToString());
+        }
 
-            return starter.CreateCheckStatusResponse(req, instanceId);
+        [FunctionName("GetStatus")]
+        public static async Task<HttpResponseMessage> Run(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient client, ILogger log)
+        {
+            var noFilter = new OrchestrationStatusQueryCondition();
+            OrchestrationStatusQueryResult result = await client.ListInstancesAsync(
+                noFilter,
+                CancellationToken.None);
+
+            HttpResponseMessage httpResponseMessage = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonConvert.SerializeObject(result))
+            };
+
+            return httpResponseMessage;
         }
     }
 }
