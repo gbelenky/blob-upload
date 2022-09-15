@@ -38,7 +38,7 @@ namespace gbelenky.blobupload
             }
 
             await Task.WhenAll(tasks);
-            
+
             long totalBytes = 0;
             long totalTime = 0;
 
@@ -46,10 +46,10 @@ namespace gbelenky.blobupload
             {
                 outputs.Add(t.Result);
                 totalBytes += t.Result.FileSize;
-                totalTime += t.Result.Duration; 
+                totalTime += t.Result.Duration;
             }
-            
-            log.LogInformation($"Copied {i} files in {totalTime/1000} seconds. Total size: {totalBytes} bytes");
+
+            log.LogInformation($"Copied {i} files in {totalTime / 1000} seconds. Total size: {totalBytes} bytes");
             return outputs;
         }
 
@@ -128,7 +128,8 @@ namespace gbelenky.blobupload
             var properties = await blobClient.GetPropertiesAsync();
             string statusMessage = $"copied {fileName} of {properties.Value.ContentLength} bytes in {stopwatch.ElapsedMilliseconds} milliseconds";
             log.LogInformation(statusMessage);
-            return new CopyFileReturn{
+            return new CopyFileReturn
+            {
                 FileSize = properties.Value.ContentLength,
                 Duration = stopwatch.ElapsedMilliseconds,
                 LogMessage = statusMessage
@@ -142,19 +143,40 @@ namespace gbelenky.blobupload
             ILogger log)
         {
             string archiveTaskJson = await req.Content.ReadAsStringAsync();
-
             ArchiveTask archiveTask = JsonConvert.DeserializeObject<ArchiveTask>(archiveTaskJson);
-
-            // Function input comes from the request content.
-            var instanceId = await starter.StartNewAsync("StartBlobUpload", archiveTask);
-            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
-            DurableOrchestrationStatus status = await starter.GetStatusAsync(instanceId);
-            while (status.RuntimeStatus == OrchestrationRuntimeStatus.Completed)
+            string instanceId = archiveTask.InstanceId;
+            if (!String.IsNullOrEmpty(instanceId))
             {
-                await Task.Delay(200);
-                status = await starter.GetStatusAsync(instanceId);
+
+                // Check if an instance with the specified ID already exists or an existing one stopped running(completed/failed/terminated).
+                var existingInstance = await starter.GetStatusAsync(instanceId);
+                if (existingInstance == null
+                || existingInstance.RuntimeStatus == OrchestrationRuntimeStatus.Completed
+                || existingInstance.RuntimeStatus == OrchestrationRuntimeStatus.Failed
+                || existingInstance.RuntimeStatus == OrchestrationRuntimeStatus.Terminated)
+                {
+                    // An instance with the specified ID doesn't exist or an existing one stopped running, create one.
+                    await starter.StartNewAsync("StartBlobUpload", instanceId, archiveTask);
+                    log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+                    return starter.CreateCheckStatusResponse(req, instanceId);
+                }
+                else
+                {
+                    // An instance with the specified ID exists or an existing one still running, don't create one.
+                    return new HttpResponseMessage(HttpStatusCode.Conflict)
+                    {
+                        Content = new StringContent($"An instance with ID '{instanceId}' already exists."),
+                    };
+                }
             }
-            return starter.CreateCheckStatusResponse(req, status.Output.ToString());
+            else
+            {
+                return new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+                {
+                    Content = new StringContent($"Please provide instanceId in your request payload"),
+                };
+
+            }
         }
 
         [FunctionName("GetStatus")]

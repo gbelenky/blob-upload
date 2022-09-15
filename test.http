@@ -2,7 +2,8 @@ POST http://localhost:7071/api/InitBlobUpload HTTP/1.1
 Content-Type: application/json
 
 {
-        "PathToArchive": "c:\\labs\\uploadblobs-data"
+        "PathToArchive": "c:\\labs\\uploadblobs-data",
+        "InstanceId": "gbelenky-print-bud"
 }
 
 ###
