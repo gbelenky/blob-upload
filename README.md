@@ -1,4 +1,4 @@
-# Blob Upload
+# Blob Upload (generated with the help of GutHub Copilot)
 
 Durable Functions demo on reliably uploading a big number of large files to Azure Blob Storage.
 
@@ -39,9 +39,9 @@ Here is an example of what a local.settings.json file might look like for this p
 {
   "IsEncrypted": false,
   "Values": {
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "AzureWebJobsStorage": "YourAzureWebJobsStorageConnectionString",
     "FUNCTIONS_WORKER_RUNTIME": "dotnet",
-    "DEST_BLOB_STORAGE": "your-destination-blob-storage-connection-string"
+    "DEST_BLOB_STORAGE": "YourDestinationBlobStorageConnectionString"
   }
 }
 
@@ -50,9 +50,6 @@ Update Connection Strings:
 
 Replace YourAzureWebJobsStorageConnectionString and YourDestinationBlobStorageConnectionString with your actual Azure Storage connection strings.
 Configure Durable Functions:
-
-Ensure that your Azure Durable Functions are properly set up and configured to use the settings from local.settings.json.
-By following these steps, you should be able to configure and run the project effectively.
 
 ### Running the Function Locally
 To run the Azure Function locally and start the file upload process using a curl request, follow these steps:
@@ -65,7 +62,10 @@ Start the Azure Function Locally:
 
 Open a terminal in the project root directory.
 Run the following command to start the Azure Function locally:
+
 func start
+
+
 Send the Curl Request:
 
 Open another terminal window.
