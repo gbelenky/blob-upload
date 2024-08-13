@@ -1,4 +1,4 @@
-# Blob Upload (generated with the help of GutHub Copilot)
+# Blob Upload (GutHub Copilot generated)
 
 Durable Functions demo on reliably uploading a big number of large files to Azure Blob Storage.
 
